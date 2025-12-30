@@ -12,6 +12,22 @@ export class AudioEngine {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0.4;
         this.masterGain.connect(this.ctx.destination);
+
+        this.buffers = {};
+        this.loadSamples();
+    }
+
+    async loadSamples() {
+        const load = async (url) => {
+            try {
+                const response = await fetch(url);
+                const arrayBuffer = await response.arrayBuffer();
+                return await this.ctx.decodeAudioData(arrayBuffer);
+            } catch(e) { console.warn("Failed to load audio", url); return null; }
+        };
+
+        this.buffers['collect'] = await load('/collect_mote.mp3');
+        this.buffers['spawn'] = await load('/wraith_spawn.mp3');
     }
 
     async init() {
@@ -105,26 +121,40 @@ export class AudioEngine {
     // Simple FX for interaction
     playSound(type) {
         const t = this.ctx.currentTime;
+        
+        // Use loaded buffer if available
+        if (this.buffers[type]) {
+            const source = this.ctx.createBufferSource();
+            source.buffer = this.buffers[type];
+            const gain = this.ctx.createGain();
+            gain.gain.value = 0.6;
+            source.connect(gain);
+            gain.connect(this.masterGain);
+            source.start(t);
+            return;
+        }
+
+        // Fallback procedural sounds
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.connect(gain);
         gain.connect(this.masterGain);
 
-        if (type === 'collect') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(800, t);
-            osc.frequency.exponentialRampToValueAtTime(1200, t + 0.1);
-            gain.gain.setValueAtTime(0.3, t);
-            gain.gain.linearRampToValueAtTime(0, t + 0.3);
-        } else if (type === 'hit') {
+        if (type === 'hit') {
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(100, t);
             osc.frequency.exponentialRampToValueAtTime(50, t + 0.2);
             gain.gain.setValueAtTime(0.5, t);
             gain.gain.linearRampToValueAtTime(0, t + 0.2);
+            osc.start(t);
+            osc.stop(t + 0.3);
+        } else {
+             // Generic fallback
+            osc.frequency.setValueAtTime(440, t);
+            gain.gain.setValueAtTime(0.1, t);
+            gain.gain.linearRampToValueAtTime(0, t + 0.1);
+            osc.start(t);
+            osc.stop(t + 0.1);
         }
-
-        osc.start(t);
-        osc.stop(t + 0.3);
     }
 }

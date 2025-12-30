@@ -70,8 +70,6 @@ class Game {
         if (target) {
             if (target.type === 'wraith') {
                 this.killWraith(target);
-            } else if (target.type === 'portal') {
-                this.travel();
             } else {
                 this.collectResource(target);
             }
@@ -93,22 +91,24 @@ class Game {
         this.updateUI();
     }
 
-    travel() {
-        if (this.state.currentRoom === 'antechamber') {
-            // Pick a random dimension
-            const types = ['bio', 'digi', 'music', 'dim'];
-            const next = types[Math.floor(Math.random() * types.length)];
-            this.state.currentRoom = next;
-            this.world.generateRoom(next);
-            this.audio.setMood(next);
-            
-            // Show narrative snippet
-            this.showNarrative(next);
-        } else {
-            // Return home
-            this.state.currentRoom = 'antechamber';
-            this.world.generateRoom('antechamber');
-            this.audio.setMood('bio'); // Default
+    checkZone() {
+        const x = this.world.camera.position.x;
+        const z = this.world.camera.position.z;
+        let newZone = 'antechamber';
+
+        if (z < -25) newZone = 'bio';
+        else if (x > 25) newZone = 'digi';
+        else if (z > 25) newZone = 'music';
+        else if (x < -25) newZone = 'dim';
+
+        if (newZone !== this.state.currentRoom) {
+            this.state.currentRoom = newZone;
+            this.audio.setMood(newZone);
+            if (newZone !== 'antechamber') {
+                this.showNarrative(newZone);
+            } else {
+                 this.ui.narrative.classList.add('hidden');
+            }
         }
     }
 
@@ -194,9 +194,13 @@ class Game {
     updateLogic(dt) {
         if (!this.state.started) return;
         
-        // Spawn more wraiths if in combat rooms
-        if (this.state.currentRoom !== 'antechamber' && Math.random() < 0.01) {
+        // Zone detection
+        this.checkZone();
+
+        // Spawn more wraiths occasionally in outer zones
+        if (this.state.currentRoom !== 'antechamber' && Math.random() < 0.005) {
              this.world.spawnEnemy();
+             this.audio.playSound('spawn');
         }
 
         // Damage from wraiths

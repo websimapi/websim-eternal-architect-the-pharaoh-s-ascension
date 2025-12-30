@@ -3,131 +3,183 @@ import * as THREE from 'three';
 export class World {
     constructor(container) {
         this.scene = new THREE.Scene();
-        this.scene.fog = new THREE.FogExp2(0x000000, 0.03);
+        this.scene.fog = new THREE.FogExp2(0x050505, 0.015);
+        this.scene.background = new THREE.Color(0x050505);
 
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 150);
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(this.renderer.domElement);
 
         this.entities = []; // { mesh, type, data }
-        this.walls = []; 
-        this.roomType = 'antechamber'; // antechamber, bio, digi...
-
+        this.colliders = []; // Array of Box3 for static walls
+        
         // Lights
-        this.ambientLight = new THREE.AmbientLight(0x404040);
+        this.ambientLight = new THREE.AmbientLight(0x202020);
         this.scene.add(this.ambientLight);
 
-        this.pulseLight = new THREE.PointLight(0xd4af37, 1, 20);
-        this.pulseLight.position.set(0, 3, 0);
+        this.pulseLight = new THREE.PointLight(0xd4af37, 1, 40);
+        this.pulseLight.position.set(0, 5, 0);
         this.scene.add(this.pulseLight);
         
+        this.playerBox = new THREE.Box3();
+        this.playerRadius = 0.5;
+
         // Materials
         this.setupMaterials();
 
         // Player setup
         this.camera.position.set(0, 1.7, 0);
-        this.playerVelocity = new THREE.Vector3();
         this.yaw = new THREE.Euler(0, 0, 0, 'YXZ');
         this.pitch = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Initial Generation
-        this.generateRoom('antechamber');
+        // Generate World
+        this.buildWorld();
 
         // Resize handler
         window.addEventListener('resize', () => this.onResize());
     }
 
     setupMaterials() {
-        const loadTex = (col) => {
-             // Create procedural noise texture
-             const canvas = document.createElement('canvas');
-             canvas.width = 128; canvas.height = 128;
-             const ctx = canvas.getContext('2d');
-             ctx.fillStyle = col;
-             ctx.fillRect(0,0,128,128);
-             // Add "runes"
-             ctx.strokeStyle = "rgba(255,255,255,0.2)";
-             ctx.lineWidth = 2;
-             for(let i=0; i<5; i++) {
-                 ctx.strokeRect(Math.random()*100, Math.random()*100, Math.random()*30, Math.random()*30);
-             }
-             const tex = new THREE.CanvasTexture(canvas);
-             tex.magFilter = THREE.NearestFilter;
-             return tex;
+        const texLoader = new THREE.TextureLoader();
+        const wallTex = texLoader.load('/pyramid_wall.png');
+        wallTex.wrapS = THREE.RepeatWrapping;
+        wallTex.wrapT = THREE.RepeatWrapping;
+        
+        const makeMat = (color, emissive, rough = 0.8) => {
+            const mat = new THREE.MeshStandardMaterial({ 
+                map: wallTex, 
+                color: color, 
+                roughness: rough,
+                emissive: emissive || 0x000000,
+                emissiveIntensity: 0.2
+            });
+            return mat;
         };
 
         this.materials = {
-            'antechamber': new THREE.MeshStandardMaterial({ map: loadTex('#553311'), roughness: 0.8 }),
-            'bio': new THREE.MeshStandardMaterial({ map: loadTex('#113311'), color: 0x4caf50, emissive: 0x002200 }),
-            'digi': new THREE.MeshStandardMaterial({ map: loadTex('#002233'), color: 0x00bcd4, wireframe: false }),
-            'music': new THREE.MeshStandardMaterial({ map: loadTex('#332200'), color: 0xffc107 }),
-            'dim': new THREE.MeshStandardMaterial({ map: loadTex('#220022'), color: 0x9c27b0 }),
+            'antechamber': makeMat(0xddaa88, 0x221100),
+            'bio': makeMat(0x4caf50, 0x002200),
+            'digi': makeMat(0x00bcd4, 0x001122),
+            'music': makeMat(0xffc107, 0x221100),
+            'dim': makeMat(0x663366, 0x110011),
+            'floor': new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
             'wraith': new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0x550000, transparent: true, opacity: 0.8 }),
             'collectible': new THREE.MeshBasicMaterial({ color: 0xffffff })
         };
     }
 
-    generateRoom(type) {
-        this.roomType = type;
+    buildWorld() {
+        // Clear
+        this.colliders = [];
+
+        // Center: Antechamber (0, 0)
+        this.createZone(0, 0, 'antechamber', 15, true);
         
-        // Clear old geometry
-        this.walls.forEach(w => this.scene.remove(w));
-        this.entities.forEach(e => this.scene.remove(e.mesh));
-        this.walls = [];
-        this.entities = [];
+        // North: Bio (0, -50)
+        this.createZone(0, -50, 'bio', 20);
+        this.createCorridor(0, -15, 0, -30, 'antechamber');
+        
+        // East: Digi (50, 0)
+        this.createZone(50, 0, 'digi', 20);
+        this.createCorridor(15, 0, 30, 0, 'antechamber');
 
-        // Room Size
-        const size = type === 'antechamber' ? 20 : 30;
+        // South: Music (0, 50)
+        this.createZone(0, 50, 'music', 20);
+        this.createCorridor(0, 15, 0, 30, 'antechamber');
+
+        // West: Dim (-50, 0)
+        this.createZone(-50, 0, 'dim', 20);
+        this.createCorridor(-15, 0, -30, 0, 'antechamber');
+    }
+
+    createZone(cx, cz, type, radius, isHub = false) {
         const mat = this.materials[type];
-
+        
         // Floor
-        const floorGeo = new THREE.PlaneGeometry(size, size);
-        const floor = new THREE.Mesh(floorGeo, mat);
-        floor.rotation.x = -Math.PI / 2;
+        const floorGeo = new THREE.CylinderGeometry(radius, radius, 1, 32);
+        const floor = new THREE.Mesh(floorGeo, this.materials.floor);
+        floor.position.set(cx, -0.5, cz);
         this.scene.add(floor);
-        this.walls.push(floor);
 
-        // Ceiling (if not dim)
-        if (type !== 'dim') {
-            const ceil = new THREE.Mesh(floorGeo, mat);
-            ceil.rotation.x = Math.PI / 2;
-            ceil.position.y = 8;
-            this.scene.add(ceil);
-            this.walls.push(ceil);
-        }
-
-        // Walls (Procedural blocks)
-        const boxGeo = new THREE.BoxGeometry(2, 8, 2);
-        const wallCount = 20;
-        for(let i=0; i<wallCount; i++) {
-            const mesh = new THREE.Mesh(boxGeo, mat);
-            const angle = (i / wallCount) * Math.PI * 2;
-            const radius = (size / 2) - 1;
-            mesh.position.set(Math.cos(angle)*radius, 4, Math.sin(angle)*radius);
-            mesh.lookAt(0,4,0);
-            this.scene.add(mesh);
-            this.walls.push(mesh);
-        }
-
-        // Features based on type
-        if (type === 'antechamber') {
-            // Central Sarcophagus
-            const sarcGeo = new THREE.BoxGeometry(2, 1, 4);
-            const sarc = new THREE.Mesh(sarcGeo, new THREE.MeshStandardMaterial({color: 0xd4af37}));
-            sarc.position.y = 0.5;
-            this.scene.add(sarc);
-            this.walls.push(sarc);
-            this.addEntity('portal', 0, 2, -9, 'Enter Chamber');
-        } else {
-            // Spawning Resources
-            for(let i=0; i<5; i++) {
-                this.spawnResource(type);
+        // Walls Ring (Partial to allow corridors)
+        const wallHeight = 8;
+        const count = 16;
+        const boxGeo = new THREE.BoxGeometry(4, wallHeight, 2);
+        
+        for(let i=0; i<count; i++) {
+            const angle = (i / count) * Math.PI * 2;
+            
+            // Leave gaps for corridors based on cardinal directions
+            const deg = (angle * 180 / Math.PI + 360) % 360;
+            // North (270 in standard trig? No, z is down. North is -Z -> 270 deg)
+            // Let's just use distance check from cardinal axes
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            
+            // Skip if near corridor entrances
+            if ((Math.abs(x) < 4 && Math.abs(z) > radius - 2) || 
+                (Math.abs(z) < 4 && Math.abs(x) > radius - 2)) {
+                continue;
             }
-            // Spawn Enemy Spawners
-            this.spawnEnemy();
+
+            const mesh = new THREE.Mesh(boxGeo, mat);
+            mesh.position.set(cx + x, wallHeight/2, cz + z);
+            mesh.lookAt(cx, wallHeight/2, cz);
+            this.scene.add(mesh);
+            
+            // Add collider
+            const box = new THREE.Box3().setFromObject(mesh);
+            this.colliders.push(box);
         }
+
+        // Features
+        if (isHub) {
+            // Sarcophagus
+            const sarc = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 4), new THREE.MeshStandardMaterial({color: 0xd4af37}));
+            sarc.position.set(cx, 0.75, cz);
+            this.scene.add(sarc);
+            this.colliders.push(new THREE.Box3().setFromObject(sarc));
+        } else {
+            // Spawns
+            for(let i=0; i<8; i++) {
+                const rx = (Math.random()-0.5) * (radius*1.2);
+                const rz = (Math.random()-0.5) * (radius*1.2);
+                this.addEntity(type, cx+rx, 1, cz+rz, 'Collect');
+            }
+            // Enemies
+            this.addEntity('wraith', cx, 2, cz, 'Attack');
+            this.addEntity('wraith', cx + 5, 2, cz + 5, 'Attack');
+        }
+
+        // Add Pillars
+        for(let i=0; i<5; i++) {
+            const px = cx + (Math.random()-0.5) * (radius);
+            const pz = cz + (Math.random()-0.5) * (radius);
+            if (Math.abs(px-cx) < 3 && Math.abs(pz-cz) < 3) continue; // Don't block center
+            
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 6, 8), mat);
+            pillar.position.set(px, 3, pz);
+            this.scene.add(pillar);
+            this.colliders.push(new THREE.Box3().setFromObject(pillar));
+        }
+    }
+
+    createCorridor(x1, z1, x2, z2, matType) {
+        // Simple connecting bridge
+        const dist = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
+        const midX = (x1+x2)/2;
+        const midZ = (z1+z2)/2;
+        const angle = Math.atan2(z2-z1, x2-x1);
+
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(dist, 1, 6), this.materials.floor);
+        floor.position.set(midX, -0.5, midZ);
+        floor.rotation.y = -angle;
+        this.scene.add(floor);
+
+        // Walls for corridor?
+        // Let's just keep it open air for style
     }
 
     addEntity(type, x, y, z, label) {
@@ -162,15 +214,13 @@ export class World {
         return entity;
     }
 
-    spawnResource(roomType) {
-        const x = (Math.random() - 0.5) * 20;
-        const z = (Math.random() - 0.5) * 20;
-        this.addEntity(roomType, x, 1 + Math.random(), z, 'Collect');
-    }
-
     spawnEnemy() {
-        const x = (Math.random() - 0.5) * 15;
-        const z = (Math.random() - 0.5) * 15;
+        // Helper for main.js to spawn random enemy
+        // Find player position and spawn nearby but not too close
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 10 + Math.random() * 5;
+        const x = this.camera.position.x + Math.cos(angle) * dist;
+        const z = this.camera.position.z + Math.sin(angle) * dist;
         this.addEntity('wraith', x, 2, z, 'Attack');
     }
 
@@ -189,7 +239,7 @@ export class World {
 
     update(dt, input, beatTime) {
         // Player Movement
-        const speed = 5.0;
+        const speed = 6.0;
         const move = input.getMovement();
         const look = input.getLook();
 
@@ -201,16 +251,23 @@ export class World {
         this.camera.quaternion.setFromEuler(this.yaw);
         this.camera.quaternion.multiply(new THREE.Quaternion().setFromEuler(this.pitch));
 
-        // Movement Vector relative to camera yaw
+        // Calculate Movement Candidate
         const direction = new THREE.Vector3(move.x, 0, move.z);
         direction.applyEuler(new THREE.Euler(0, this.yaw.y, 0));
         
-        this.camera.position.addScaledVector(direction, speed * dt);
+        const velocity = direction.multiplyScalar(speed * dt);
+        
+        // Try X Movement
+        this.camera.position.x += velocity.x;
+        if (this.checkCollision()) {
+            this.camera.position.x -= velocity.x; // Revert
+        }
 
-        // Boundaries (Simple Box)
-        const limit = this.roomType === 'antechamber' ? 9 : 14;
-        this.camera.position.x = Math.max(-limit, Math.min(limit, this.camera.position.x));
-        this.camera.position.z = Math.max(-limit, Math.min(limit, this.camera.position.z));
+        // Try Z Movement
+        this.camera.position.z += velocity.z;
+        if (this.checkCollision()) {
+            this.camera.position.z -= velocity.z; // Revert
+        }
 
         // Reset look delta
         input.resetLook();
@@ -239,15 +296,18 @@ export class World {
                 ent.mesh.position.addScaledVector(dir, 1.5 * dt); // Slow move
                 ent.mesh.scale.lerp(new THREE.Vector3(1,1,1), dt * 5); // Return to normal scale
                 
-                // Damage player if close
-                if (ent.mesh.position.distanceTo(this.camera.position) < 1.0) {
-                     // handled in main for state updates
-                }
-            } else if (ent.type === 'portal') {
-                ent.mesh.rotation.y += dt;
-                ent.mesh.rotation.x += dt * 0.5;
-            }
+                // Keep wraiths above floor
+                ent.mesh.position.y = 2;
+            } 
         });
+    }
+
+    checkCollision() {
+        this.playerBox.setFromCenterAndSize(this.camera.position, new THREE.Vector3(1, 2, 1));
+        for (let box of this.colliders) {
+            if (this.playerBox.intersectsBox(box)) return true;
+        }
+        return false;
     }
 
     // Raycast for interaction
