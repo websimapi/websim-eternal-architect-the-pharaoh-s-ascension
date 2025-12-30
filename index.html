@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Eternal Architect: The Pharaoh's Ascension</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://esm.sh/three@0.160.0",
+                "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+                "nipplejs": "https://esm.sh/nipplejs@0.10.1"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="game-container"></div>
+    
+    <!-- HUD -->
+    <div id="ui-layer">
+        <div id="resource-bar">
+            <div class="res-item"><span class="icon">🌿</span> <span id="res-bio">0</span></div>
+            <div class="res-item"><span class="icon">💾</span> <span id="res-digi">0</span></div>
+            <div class="res-item"><span class="icon">🎵</span> <span id="res-music">0</span></div>
+            <div class="res-item"><span class="icon">🌀</span> <span id="res-dim">0</span></div>
+        </div>
+        
+        <div id="health-bar-container">
+            <div id="health-bar"></div>
+        </div>
+
+        <div id="crosshair">+</div>
+
+        <div id="interaction-prompt" class="hidden">Tap to Interact</div>
+
+        <!-- Mode Overlay -->
+        <div id="narrative-overlay" class="hidden">
+            <h2 id="narrative-title">The Antechamber</h2>
+            <p id="narrative-text">The pyramid hums with a dormant power.</p>
+            <div id="choices"></div>
+        </div>
+        
+        <!-- Synthesis/Crafting Menu -->
+        <div id="synthesis-menu" class="hidden">
+            <h2>Chamber of Synthesis</h2>
+            <p>Combine resources to evolve the Pyramid.</p>
+            <div class="recipe-grid" id="recipe-list">
+                <!-- Populated by JS -->
+            </div>
+            <button id="close-synth">Close</button>
+        </div>
+
+        <button id="synth-btn">SYNTHESIS</button>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+        <h1>ETERNAL ARCHITECT</h1>
+        <p>The Pharaoh's Ascension</p>
+        <p class="subtitle">Sync your actions to the Heartbeat.</p>
+        <button id="start-btn">ENTER THE PYRAMID</button>
+    </div>
+
+    <script type="module" src="main.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
